@@ -1,0 +1,88 @@
+1- PROBLEMAS DE ESTATISTICAS
+
+-- SQL com tempo de execucao ruim por causa de estatisticas furadas (NUM_ROWS = 33 ao inves da qtde real que eh muito maior) da tabela ORDER_ITEMS 
+--      e principalmente do indice ORDER_ITEMS_PK que esta com blevel e clustering factor altos (15 e 99999999999999999)
+
+Solucao:
+    alter system flush shared_pool;
+    EXEC DBMS_STATS.GATHER_TABLE_STATS(OWNNAME => 'SOE', TABNAME => 'ORDER_ITEMS'); -- 102s
+
+Obs.: Testar:
+        EXEC DBMS_STATS.DELETE_TABLE_STATS(OWNNAME => 'SOE', TABNAME => 'ORDER_ITEMS'); -- 102s
+    
+------------------------------------------------------------------------------------------------------------------------
+2- ESTRUTURAS DE ACESSO
+
+-- Solucao: criar MV (88s) que contem os dados ja calculados usando query rewrite:
+
+GRANT QUERY REWRITE TO SOE;
+GRANT CREATE MATERIALIZED VIEW TO SOE;
+ALTER SESSION SET QUERY_REWRITE_ENABLED=TRUE;
+alter session set query_rewrite_integrity=trusted;
+
+create materialized view SOE.VENDAS_MES_TIPOCLIENTE BUILD IMMEDIATE enable query rewrite
+AS
+SELECT      TO_CHAR(O.ORDER_DATE, 'YYYY/MM') AS ANO_MES,
+            COUNT(O.ORDER_ID) AS QTDE_VENDAS,
+            SUM(O.ORDER_TOTAL) AS VALOR_TOTAL_VENDAS,            
+            O.CUSTOMER_CLASS
+FROM        SOE.ORDERS O    
+GROUP BY    TO_CHAR(O.ORDER_DATE, 'YYYY/MM'), O.CUSTOMER_CLASS
+ORDER BY    ANO_MES, VALOR_TOTAL_VENDAS, QTDE_VENDAS, CUSTOMER_CLASS;  
+
+------------------------------------------------------------------------------------------------------------------------
+3- HARD PARSE
+
+-- Solucao 1: alterar procedure para abrir cursor com SQL estatico ao inves de dinamico (tempo cai em media de 4s para 2.8s)    
+
+CREATE OR REPLACE PROCEDURE ECOMMERCE.SP_PEDIDO_S(P_CD_PEDIDO NUMBER) as 
+  v_cursor sys_refcursor;
+BEGIN
+  open v_cursor for 
+      SELECT * from ECOMMERCE.PEDIDO WHERE CD_PEDIDO = P_CD_PEDIDO;      
+            
+      dbms_sql.return_result(v_cursor);    
+END;
+
+-- Obs.: mudar cursor_sharing p/ FORCE neste caso nao funciona, pois o SQL da procedure continua gerando sql dinamico
+       
+------------------------------------------------------------------------------------------------------------------------
+4- CONTENCAO DE RECURSOS
+
+-- Solucao crie o indice SOE.IX_ORDER_TOTAL, configure apropriadamente o param OPTIMIZER_FEATURES_ENABLE simplifique o SQL:
+create bitmap index SOE.IX_ORDER_TOTAL on soe.orders(ORDER_TOTAL);  -- 21s
+ALTER SYSTEM SET OPTIMIZER_FEATURES_ENABLE = '18.1.0';
+
+-- seria bom tambem "enxugar" o SQL, mas neste caso isso nao vai afetar a performance:
+UPDATE  SOE.ORDERS
+SET     ORDER_STATUS = 5
+WHERE   ORDER_TOTAL = 5000;
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+5- SQL RUIM
+    
+-- Solucao: Usar funcao analitica OVER para eliminar redundancia na chamada para obter total geral e usar PARALELISMO se estiver em ambiente ENTERPRISE:
+
+EXPLAIN PLAN FOR -- 386s, 242s,
+SELECT      /*+ PARALLEL */ TO_CHAR(O.ORDER_DATE,'DD/MM/YYYY') AS ORDERS_DATE,
+            C.NLS_TERRITORY,        
+            P.PRODUCT_NAME,
+            SUM(I.UNIT_PRICE) OVER (PARTITION BY TO_CHAR(O.ORDER_DATE,'DD/MM/YYYY'),  C.NLS_TERRITORY, P.PRODUCT_NAME) AS TOTAL_PRICE,
+            SUM(I.QUANTITY) OVER (PARTITION BY TO_CHAR(O.ORDER_DATE,'DD/MM/YYYY'),  C.NLS_TERRITORY, P.PRODUCT_NAME) AS TOTAL_QUANTITY,
+            SUM(I.UNIT_PRICE) OVER (PARTITION BY TO_CHAR(O.ORDER_DATE,'DD/MM/YYYY')) AS DATE_TOTAL_PRICE,
+            ROUND(
+                    SUM(I.UNIT_PRICE) OVER (PARTITION BY TO_CHAR(O.ORDER_DATE,'DD/MM/YYYY'),  C.NLS_TERRITORY, P.PRODUCT_NAME) / -- TOTAL_PRICE
+                    SUM(I.UNIT_PRICE) OVER (PARTITION BY TO_CHAR(O.ORDER_DATE,'DD/MM/YYYY')) * 100 -- DATE_TOTAL PRICE 
+                    , 2 ) AS PERC_DATE_TOTAL
+FROM        SOE.ORDERS O
+JOIN        SOE.ORDER_ITEMS I
+  ON        O.ORDER_ID = I.ORDER_ID
+JOIN        SOE.PRODUCT_INFORMATION P
+  ON        I.PRODUCT_ID = P.PRODUCT_ID
+JOIN        SOE.CUSTOMERS C
+ ON         C.CUSTOMER_ID = O.CUSTOMER_ID
+WHERE       TO_CHAR(O.ORDER_DATE, 'YYYY/MM') = '2010/03';
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+

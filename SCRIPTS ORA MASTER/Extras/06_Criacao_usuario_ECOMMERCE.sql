@@ -1,0 +1,9 @@
+-- Cria usuario ECOMMERCE com senha igual e define tablespace default 
+CREATE USER ECOMMERCE IDENTIFIED BY ECOMMERCE DEFAULT TABLESPACE ECOMMERCE_D ACCOUNT UNLOCK ;
+-- Atribui privilegios para o usuario
+GRANT CONNECT, RESOURCE TO ECOMMERCE;
+-- Define roles default do usuario
+ALTER USER ECOMMERCE DEFAULT ROLE CONNECT, RESOURCE;
+-- Define quotas de gravacao em tablespaces para o usuaario
+ALTER USER ECOMMERCE QUOTA UNLIMITED ON ECOMMERCE_D;
+ALTER USER ECOMMERCE QUOTA UNLIMITED ON ECOMMERCE_I; 

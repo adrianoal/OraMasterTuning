@@ -1,0 +1,16 @@
+BANCO DE DADOS:
+S∆o coleá‰es organizadas de dados que se relacionam e geraram informaá‰es de forma eficiànte durante uma pesquisa.(Adriano Lima)
+
+ESTRUTURA L‡GICA DE UM BANCO DE DADOS:
+TableSpace's:
+Segmento: Objetos que ocupam espaáo em um banco de dados.
+Extens∆o: Espaáo usado por um segmento em um tablespace.
+Bloco: Consiste em um ou mais blocos do sistema operacional e seu tamanho                                                Ç definido na criaá∆o do tablespace.
+Obs: Quando n∆o Ç criado uma TableSpace, O Oracle como padr∆o sempre cria um tablespace de dados chamado USERS.
+
+CRIAÄ«O DE CONEX«O:
+Usu†rio: xxxx
+   Schema: Conjunto de objetos que pertencem ao mesmo usu†rio, tabelas, views,                                                            sequences, °ndices e etc.
+Senha: xxxx
+Nome da Conex∆o: xxxx
+

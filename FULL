@@ -1,0 +1,1716 @@
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																-- TREINAMENTO ORA MASTER - ORACLE SQL TUNING --
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Maquina virtual:
+Usuario: oracle
+Senha: oracle
+
+CRIANDO NOVA CONEXAO DE BANCO DE DADOS:
+Conexão: pdbxe
+Usuario: sys as sysdba
+Senha: oracle
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																	-- CAPITULO 1 - INTRODUCAO SQL TUNING --
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+OLTP:
+	Modelagem BD Realcional OLTP - Prioriza "Consistência e Integridade dos Dados"
+		(Online Transaction Processing ou Processamento de Transações em Tempo Real) 
+		 são sistemas que se encarregam de registrar todas as transações contidas em uma determinada operação organizacional.
+		 
+		 Foco no nível operacional, visa a execução operacional do negócio.
+		 Alta velocidade na manipulação de dados operacionais, porém, ineficiente para geração de análises gerenciais.
+		 Os dados são normalizados em um modelo relacional normalizado, otmizado para a utilização transacional. Os dados possuel alto nível de detalhes.
+		 O armazenamento é feito em sistemas convencionais de banco de dados através dos sistemas de informações da organização.
+		 É utilizado por técnicos e analistas e engloba vários usuários da organização.
+		 A atualização dos dados é feito no momento da transação. Frequencia muito alta de atualizações.
+		 Dados voláteis, passíveis de modificação e execução.
+		 
+		Recomendado Índice do tipo B-TREE --> Mais utilizado e mais comum em ambientes OLTP;
+		
+
+OLAP:
+	Realcional BD Realcional OLAP - Prioriza "Consultas e Análise dos Dados" 
+		(Online Analytical Processing) é a capacidade para manipular e analisar um grande volume de dados sob múltiplas perspectivas.
+		 As aplicações OLAP  são usadas pelos gestores em qualquer nível da organização para lhes permitir análises comparativas 
+		 que facilitem a sua tomada de decisões diárias.
+		 
+		 
+		 Recomendado BITMAP --> A Oralce recomenda esse tipo de índice em ambiente OLAP.
+   							    Indicado para indexar FKs de tabelas de dimensões que se relacionam com a PK de uma tabela fato.
+
+
+	SEGURANCA X PERFORMANCE:
+	
+	TDE: Transparent Data Encryption(Criptografia de dados transparente).
+	
+	
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																-- CAPITULO 2 - PROJETO DO BANCO DE DADOS --
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+ PROJETO DE BANCO DE DADOS:
+
+	É uma boa prática fazer a NORMALIZAÇÃO dos dados em BDs OLTP 
+	É uma boa prática fazer a DESNORMALIZAÇÃO dos dados em BDs OLAP.
+	
+	SCHEMA: 
+
+	Para explicar isso vamos passar falar de criação de usuário. 
+	Quando criamos um usuário com o comando create user criamos também um schema a ele associado de mesmo nome. 
+	O usuário usado para acessar o banco é a conta que a pessoa tem para issso. 
+	Já o schema é composto do conjunto de objeto que pertencem àquele usuário, tabelas, views, sequences, índices e etc.
+	
+ TIPOS DE TABELAS:
+
+	HEAP TABLES: (Pilha)
+		Linhas não são inclusas em uma ordem particular, mas sim onde for melhor (em termos de armazenamento), 
+		sem interferência do usuário;
+		Tabela default do Oracle, é a mais comumente utilizada.
+		
+				
+	EXTERNAL TABLES:	
+		Dados não são armazenados no BD, eles vêm de um arquivo texto (Ver mais informações no artigo Criando Tabelas Externas);
+		Só permite selecionar dados.
+	
+	CLUSTER TABLES:	
+		Grupo de tabelas que compartilham colunas e armazenam dados relacionados nos mesmos blocos;
+		Reduz I/O (INPUT/OUTPUT) e requer menos armazenamento.
+	
+	
+	(IOT) INDEX ORGANIZED TABLE:
+		A tabela inteira é indexada em um índice que corresponde à sua PK, e as linhas são ordenadas fisicamente por ela;
+		Ao invés de ter 2 segmentos (1 p/ a tabela e outro p/ a PK) possui apenas 1, podendo reduzir o I/O nas consultas que 
+		filtram a PK.
+	
+	PARTITIONED TABLE: 
+		Uma tabela é dividida internamente (de modo transparente p/ a aplicação) em partes menores, visando otimizar o desempenho 
+		de consultas e atualizações em grandes tabelas;
+		Exige licenciamento da option Partitioning;
+		OBS.: Ver mais informações no artigo Criando tabelas particionadas para otimizar consultas em tabelas.
+		
+	-------------------------
+	DICAS PARA CRIAR TABELAS:
+	-------------------------
+	
+	NUMBER - Utilize NUMBER em PKs.... É mais performático!!!
+			 Utilize VARCHAR2 p/ armazenar valores "alfanuméricos"... Para mais informações, leia o artigo Qual tipo de dado devo usar: CHAR, VARCHAR ou VARCHAR2?;
+			 A Oracle recomenda nao usar varchar, deve-se utilizar varchar2!!!
+
+	CONSTRAINTS - Crie somente constraints úteis, pois elas degradam a performance das operações de inclusão e atualização;
+				- Saiba quando criar Natural Keys X Surrogate Keys. 
+				  De um modo geral crie chave substituta se o valor de chave natural é um caractere grande, isso agiliza joins e pesquisas;
+				– Prefira PK´s compostas (Natural Key) em tabelas resultado de relacionamento N para N;
+				– Colunas que permitem valores nulos devem ser as últimas para economizar bits e minimizar fragmentação de dados.
+				   FRAGMENTACAO DE DADOS:  Técnica de expansão de camadas de dados em partições... Pesquisar!
+				  Obs: Em campos Null, deixar por ultimo, economiza um byte.
+
+	-------
+	INDICE:
+	-------
+	VISAO GERAL INDICE:
+	
+	LINK: https://www.oraclehome.com.br/2013/06/24/indices-particionados-local-global-index/
+	
+	Índices são segmentos que contém a(s) coluna(s) indexada(s) juntamente com o ROWID da linha que contém o valor indexado.
+	
+	 Características gerais dos índices:
+		Tomar cuidado ao criar índices! 
+		– Permitem agilizar as consultas (SELECT), porém, oculpa espaco em disco e degradam a performance das atualizações (INSERT, UPDATE, DELETE e MERGE); Pesquisar???
+		
+		– Devem ser criados para otimizar somente as consultas mais 'frequentes', em uma ou múltiplas colunas (conforme a necessidade);
+		
+		– Devem ser criados nas colunas utilizadas:
+		   Na cláusula WHERE;
+		   Na ordenação ou agrupamento;
+		   Nas ligações.
+		
+		– Podem ser evitados em tabelas pequenas (*);
+		– Devem ser criados cautelosamente em tabelas ou colunas que sofrem muitas atualizações;
+		
+		
+		– É importante considerar a cardinalidade da coluna e fator de clusterização para determinar o tipo de índice e se ele será eficiente ou não:
+		  Baixa clusterização (valor do fator próxima à qtde. de blocos) é eficiente e indica que o índice está sincronizado com a tabela. 
+		  Alta clusterização (valor do fator próximo a qtde. de linhas) é ruim e índice pode ser evitado.
+		  
+		  (RAC) Oracle Real Application Clusters (Pacote de aplicativos reais da Oracle).
+		  
+		  
+	O Oracle RAC (Real Application Cluster) é uma arquitetura de banco de dados "que tudo compartilha", 
+	na qual dois ou mais nós Oracle RAC são armazenados em cluster(Grupo) e compartilham do mesmo armazenamento. 
+	Os nós RAC são conectados com uma interconexão de alta velocidade que permite rápida comunicação entre os nós Oracle. 
+	Os nós podem trocar várias categorias de informações de propriedade de bloco de dados durante a inicialização, 
+	informações de bloqueio, informações de transações de troca e dados, etc.	  
+
+
+
+	O que considerar antes de criar um índice?
+		- Tipo do índice;
+		- Coluna da tabela;
+		- Se é single ou composto;
+		- Utilização de recursos tais como paralelismo, nologging, compression e invisible;
+		- Unicidade, convenções de nome, tablespace, tamanho inicial e crescimento;
+		- Impacto no SELECT, DMLs, e se será global ou local.
+		
+		
+		Só consulta pode criar os bitmeps
+			Na verdade, sempre é recomendável usar índices de bitmap para sistemas em que os dados não são frequentemente 
+			atualizados por muitos sistemas simultâneos.
+		
+	É melhor Clusterização baixo, é melhor é bom para o Índice.
+	Pesquisar sobre o fator de clusterização?????
+	
+   ---------------
+	CLUSTERIZAÇÃO:
+   ---------------
+		Arquitetura de banco de dados, "Que tudo compartilha" na qual dois ou mais nós Oracle Rac são armazenados em Cluster
+		e compartilham do mesmo armazenamento.
+		
+		RAC: Real Application Cluster
+		   
+	
+	
+	
+	-------------------------------------
+	PLANO DE EXECUCAO DO CAMPO 'NM_EMIAL'
+	
+	Link para consulta: https://www.devmedia.com.br/tuning-no-oracle/8438
+	Link para consulta: https://oraclepress.wordpress.com/2017/01/16/explain-plan/
+	Link para consulta: http://dbtimewizard.com.br/blog/execution-plan-como-interpretar-os-valores-estatisticos-estimados/
+	-------------------------------------
+		Obs: Utilizado quando se faz consulta com uma certa frequencia em um determinado campo.
+		
+		EXEMPLO:
+		
+			EXPLAIN PLAN FOR
+				SELECT  CD_CLIENTE, NM_CLIENTE, DT_NASCIMENTO 
+				FROM    ECOMMERCE.CLIENTE
+				WHERE   NM_EMAIL = 'sagko@com.br';
+				SELECT * FROM TABLE(dbms_xplan.DISPLAY);
+				
+	Obs: Analisar os campos do PE abaixo:
+		
+		Vamos entender o que a Listagem 1 nos mostra:
+
+		SELECT STATEMENT: inicialmente o Oracle identifica o tipo de transação;
+		NESTED LOOPS: informa, se houver, o ‘Join Method’ (será visto ainda nesse artigo);
+		TABLE ACCESS FULL: método de acesso à primeira tabela da consulta (após a cláusula FROM);
+		TABLE ACCESS BY INDEX ROWID: método de acesso à segunda tabela da consulta;
+		INDEX UNIQUE SCAN: detalhamento do método de acesso TABLE ACCESS BY INDEX ROWID (percebam a identação), 
+		contendo o nome do índice usado. Na ‘tabela’ formatada pelo Explain Plan temos também:
+
+		Rows: número de linhas selecionadas;
+		Bytes: total de bytes (somatória dos blocos) selecionados;
+		Cost: custo gerado pela etapa da execução;
+		Pstart / Pstop: implementado na versão 9i e usado em tabelas particionadas, mostra as partições lidas, inicial e final.
+				
+		
+		Nested Loop
+			O Nested Loop é o método de junção mais vantajoso para realizar a junção de tabelas as quais retornarão poucos 
+			registros e ainda claramente relacionadas através de dependência entre as mesmas tabelas 
+			(chaves primária e estrangeira). 
+			Desta forma, o otimizador elege uma ‘tabela principal’, que servirá de base para buscar os registros na tabela 
+			dependente. 
+			Para cada registro existente na tabela principal, o Oracle buscará os registros na tabela dependente que atendam 
+			às condições de filtro (cláusula WHERE). 
+			
+			Veja um exemplo na Listagem:
+	
+			SELECT e.nome, e.sobrenome, d.departamento
+			FROM empregados e, departamentos d
+			WHERE e.dep_num = d.de_num
+			AND e.emp_num = 15;
+			
+	
+	
+	-----------------
+	GRUPO DE INDICES:
+	-----------------
+	
+	LINK: https://www.oracle.com/technetwork/pt/articles/sql/indice-bitmap-arvore-b-2392561-ptb.html
+		Grupos de tipos de índices no Oracle Database:
+		
+		B-tree:
+			– Índice default no Oracle, também conhecido como normal;
+			– Possui estrutura de árvore binária, balanceada, e é indicado somente p/ alta cardinalidade.(n-n)
+				
+				Utilizar em colunas que possuem alta cardinalidade;
+				Segundo a Oracle, são eficientes em consultas que retornam até 4% do total de linhas de uma tabela;
+				Não armazenam valores nulos (exceto cluster B*Tree indexes).
+				
+		SINTAXE: 
+				CREATE INDEX ECOMMERCE.IX_CLIENTE_NMEMAIL ON ECOMMERCE.CLIENTE(NM_EMAIL);
+							
+		Bitmap (Recomendável usar índices de bitmap para sistemas em que os dados não são frequentemente atualizados(OLAP) por muitos sistemas simultâneos)
+		
+			– Possui estrutura de mapas de bits e é indicado p/ baixa cardinalidade; (1-1)
+			– Só existe na versão Enterprise Edition.
+			
+			  Foi introduzido no Oracle 7.3 e é normalmente utilizado em ambientes OLAP, pois ele não foi projetado para 
+			  sistemas que são atualizados por muitas sessões concorrentes;
+			 
+			 É indicado para colunas com baixa cardinalidade, mas também pode ser eficiente em colunas com alta cardinalidade;
+			 Seu tempo de criação é + rápido que o de um b-tree, possui uma estrutura mais enxuta, como ponteiros apontando 
+			 para muitas linhas. 
+			 
+			 É lento para atualização após a execução de comandos DML. Deve-se evitá-lo em colunas que sofrem muitas atualizações 
+			 concorrentemente;
+			 Seu tamanho varia de acordo com a cardinalidade da coluna. Se for utilizado em uma coluna com baixa cardinalidade, 
+			 seu tamanho será bem menor que o de um B-tree;
+			 
+			 SINTAXE:
+					create bitmap index normal_empno_bmx on test_normal(empno);
+			 
+		
+		TIPOS DE INDICES BITMAP:
+			
+			 Bitmap;
+			 Bitmap Join;
+			 Coluna virtual indexada;
+			 Invisível;
+			 Particionado local. Para uso exclusivo
+			 
+				
+		BITMAP JOIN
+			
+			Ótimo para aplicações OLAP. Podem ser utilizados para otimizar acesso em ligações;
+			São uma boa alternativa para não ter que desnormalizar a tabela (transformando, por exemplo, 2 tabelas em 1 só), 
+			quando o objetivo é acessar os dados mais rapidamente;
+			Deve existir um relacionamento entre as tabelas (PK e FK).
+			
+				
+		Function based
+			– Pode ser do tipo b-tree ou bitmap;
+			– É indicado somente quando for realmente necessário utilizar uma função na coluna indexada;
+			
+		FUNCTION BASED	
+					
+			Restrições e características principais:
+			– Colete estatísticas da tabela ou apenas da “nova coluna virtual”, para o BD ter o NDV dela;
+			– Pode ser ignorado em instruções SQL que contenham a expressão OR;
+			– Não pode ser criado em colunas do tipo LOB ou Nested Table;
+			– Não pode ser criado em expressões que contenham valores nulos ou funções de agregação;
+			
+		Domain index
+			– Índices mais complexos e especializados;
+			– Manutenção deve ser realizada manualmente.
+			
+	-------------
+	DICAS GERAIS:
+	-------------
+	
+		Use nomes padronizados;
+		Monitore o uso dos índices e apague aqueles que não estão sendo utilizados;
+		Não faça rebuilds de índices desnecessariamente. 
+		
+		Veja mais informações no artigo Quando devo reconstruir ou "fazer REBUILD" de índices?; Blog, Fabio Prado
+		Considere também criar índices em colunas usadas nas seguintes cláusulas: ORDER BY, GROUP BY, UNION e DISTINCT;
+		Considere criar índices compostos e índices em FKs.
+	
+   ----------------------------
+   - MONITORAMENTO DE INDICES -
+   ----------------------------
+	
+	--Para habilitar o monitoramento:
+	ALTER INDEX <ÍNDICE> MONITORING USAGE;  -- OBS.: N esquecer de colocar o owner antes do objeto, quando for o caso!
+		ALTER INDEX ECOMMERCE.IX_CLIENTE_NMEMAIL MONITORING USAGE;     -- STATUS: VALID! 
+
+	--Para desabilitar o monitoramento:
+	ALTER INDEX <IX_CLIENTE_NMEMAIL> NONMONITORING USAGE;
+
+	Para consultar o monitoramento:
+	SELECT INDEX_NAME, TABLE_NAME, MONITORING, USED, START_MONITORING, END_MONITORING
+	FROM V$OBJECT_USAGE;
+	
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+												-- CAPITULO 3 -- ENTENDENDO O QUE É O OTIMIZADOR E UM PLANO DE EXECUÇÃO --
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+
+	Neste capítulo veremos:
+	
+	– Processamento de uma instrução SQL;
+	– O que é o Otimizador de Query;
+	– O que é um Plano de execução;
+	– Métodos de acesso a dados e de ligações;
+	– Como analisar um plano de execução e identificar problemas de performance, Para uso exclusivo
+
+--------------------------------------------------------------------------------------------------------------------------------			
+	
+	---------------------------------------
+	– Processamento de uma instrução SQL: -
+	---------------------------------------
+	
+	
+		PROCESSAMENTO DE UMA INSTRUCAO SQL
+		
+		SQL STATEMENT (COMANDO SQL)
+		------------------------------------------------------------------------------------------------------------------------
+		-									Parsing(Significa analisar gramaticalmente)
+		-	SYNTAX CHECK (ANALISE SINTATICA) - A primeira análise é verificar se o comando enviado é válido e interpretável pelo sistema, aqui pode conter erros de digitação.										   
+		-																			   
+		-	SEMANTIC CHECK (ANALISE SEMANTICA) - Os objetos solicitados existem?  O usuário tem os privilégios necessários sobre os objetos requisitados? Há ambuiguidades no código(duas colunas com mesmo nome)?  										   
+		-																			   
+		-	SHARED POLL CHECK (BUSCA NA SHARED POLL) - Verifica se a instrução SQL já foi executada previamente.
+		
+													Estrutura de memória
+														(Shared Pool é uma área de memória, que faz parte da SGA, onde o Oracle armazena, principalmente, as instruções SQL, 
+														 packages e informações de objetos que foram executados ou acessados). 								   
+														 
+														 Buffer Cache: Armazenar dados
+														 Shared Poll: Armazena objetos complexos que descrevem como os dados são armazenados.
+														 
+														 LINK: https://www.fabioprado.net/2019/09/cleansharedpool.html
+														 
+														 
+		------------------------------------------------------------------------------------------------------------------------
+		----------------------------------------------------------------------------------------------------------------------
+		ASSUNTO PARALELO: VARIAVEIS DO TIPO BIND:		
+			LINK: https://www.devmedia.com.br/artigo-sql-magazine-18-variaveis-bind-uma-visao-pratica/7760
+		----------------------------------------------------------------------------------------------------------------------
+		
+		
+		
+	------------------
+	– QUERY OTIMIZER -
+	------------------
+	
+		QUERY OPTIMIZER (OTMIZADOR DE CONSULTAS):
+		O Otimizador de consultas, componente do Oracle mais conhecido como Otimizador, é responsável por gerar o melhor 
+		plano de execução para cada instrução SQL;
+		
+		O melhor plano de execução é normalmente aquele que apresenta o menor tempo de resposta;
+		
+		Para determinar o PE mais eficiente o otimizador:
+		
+			– Gera um conjunto de planos potenciais para a instrução SQL baseando-nos caminhos de acesso e hints;
+			– Estima o custo de cada plano baseando-se nas estatísticas e características de armazenamento dos objetos acessados 
+			  pela instrução SQL;
+			– Compara os planos e escolhe aquele com o menor custo.
+		
+		-------------------------------------------------------------------------------------------------------------------------------
+		- COMPONENTES DO OTIMIZADOR:
+		-			
+		-	QUERY TRANSFORMER(Transformações de Consulta)
+		-						(Ele pode permitir caminhos de acesso mais eficientes ou métodos de junção alternativos que evitam produtos cartesianos, o otimizador executa a expansão apenas se o custo da instrução transformada for menor que o custo da instrução original.) 
+		-
+		-	ESTIMATOR < -------------------------------------- DATA DICTIONARY (Fica analisando estatística, e escolhe o melhor plano)                
+		Gerador de estimativas					Estatísticas					CBO x RBO Dois tipos de otmizador:
+		-																		RBO: RULES BASED OPTIMIZER
+		-																		CBO: COST BASED OPTIMIZER
+		-	PLAN GENERATOR
+		-  Gerador de Planos
+		-		
+		-------------------------------------------------------------------------------------------------------------------------------	
+		LINK: http://www.linhadecodigo.com.br/artigo/737/o-otimizador-do-oracle-para-desenvolvedores-parte-ii-otimizador-baseado-em-custos.aspx
+		
+		-------------------------
+	    -------------------------	
+		COMPONENTES DO OTIMIZADOR   -----> O otmizador nao e 100% eficaz!!! Quando nao, pode se usar HINT
+		-------------------------
+		-------------------------
+		
+		O otimizador baseado em custo é composto por três componentes:
+		
+		Transformador de consultas (query transformer) -- Busca nova maneira de escrever o código
+		Gerador de estimativas (estimator) 			   -- Estima o esforço para resolver a consulta
+		Gerador de planos (plan generator) 			   -- Escolhe aquela que oferece o melhor desempenho.
+		
+		
+		
+		O "transformador de consultas" busca uma nova maneira de escrever a consulta e a encaminha para o "gerador de estimativas". 
+		Este tenta utilizar estatísticas existentes, ou valores padrões do "otimizador", para estimar o esforço para resolver a consulta. 
+		Em seguida o gerador de planos analisa as opções apresentadas e escolhe aquela que oferece o melhor desempenho.
+		
+	   ---------------------------	
+		METODOS DE ACESSO A DADOS:
+	   ---------------------------
+	
+		Sao divididos em tres tipos:
+	
+		FULL TABLE SCAN(FTS)
+							Leitura da tabela inteira, do início até a marca d´água (HWM);
+							
+		INDEX LOOK
+					Dados pesquisados através de valores chaves em índices que retornam ROWIDs;		
+					
+				São subdivididos em grupos:
+					– Index Unique Scan (recupera 1 valor);
+					– Index Range Scan (escaneia múltiplos valores de forma ordenada);
+					– Index Full Scan (escaneia o índice inteiro de forma ordenada);
+					– Index Fast Scan (escaneia o índice inteiro s/ ordenação, múltiplos blocos por scan).
+					– Index Skip Scan (coluna inicial de um índice composto não é utilizada).
+
+		ROWID
+			Endereço físico de uma linha composto por 10 bytes contendo referências ao arquivo de dados, bloco e número da linha;
+			 › Método de acesso mais rápido;
+			 › O Oracle simplesmente recupera o bloco especificado e extrai os dados contidos nele.
+
+		
+		
+		--------------------
+		METODOS DE LIGACOES:
+		--------------------
+		
+		Obs: qtde. de linhas (e não o tamanho das tabelas) esperada na ligação é que influencia o Otimizador a escolher um dos seguintes métodos de ligações:
+		
+			NESTED LOOPS JOIN
+			
+			SORT MERGE JOIN
+			
+			HASH JOIN
+			
+		
+	-----------------------------------	
+	- ANALISANDO O PLANO DE EXECUCAO: -
+	-----------------------------------
+			
+	COMO ANALISAR UM PLANO DE EXECUCAO:
+	
+		Existem varias formas de analisar um plano de execucao
+		
+	
+	* Habilitando o Autotrace(SET AUTOTRACE)
+	* Comando EXPLAIN + DBMS_XPLAN.DISPLAY
+	* Package DBMS_XPLAN.DISPLAY_CURSOR
+	
+	CONSULTANDO VIEWS:
+	
+		V$SQL_PLAN
+		V$SQL_SHARED_CURSOR
+		V$SQL_PLAN_STATISTICS_ALL
+		
+		Obs: Existem outras Views relacionadas!!!
+		
+		
+		Gerando arquivos de SQL Trace:
+		------------------------------
+		
+		LINK: https://www.fabioprado.net/2013/09/analisando-traces-em-bancos-de-dados.html
+		
+		Analisando SQL traces em banco de dados Oracle:
+			Analisar um trace é um dos métodos mais utilizados para entender em detalhes como uma instrução SQL foi executada no BD e efetuar Debug!
+			
+			
+		O que é um arquivo trace?
+		
+			Trace ou especificamente SQL Trace, é um método de rastreamento de comandos SQL para verificar o que está sendo executado no BD e pode ser utilizado para corrigir erros 
+			(debug) ou otimizar SQL. 
+			No Oracle Database, o SQL Trace pode ser habilitado no nível de sessão (identificador do cliente, serviço, módulo ou ação) ou BD. 
+			Ao habilitar SQL Trace na sessão de um usuário, todas as instruções SQL que ele submeter ao BD serão registradas em um arquivo, comumente conhecido como arquivo trace. 
+			As principais informações que um arquivo trace contém são:
+
+		- Contadores de parse, fetch e execute;
+		- Tempo de CPU e o tempo total de execução de instruções SQL;
+		- Quantidade de leituras físicas e lógicas;
+		- Quantidade de linhas processadas.
+
+		Os arquivos trace possuem um nome composto pelas seguintes partes: nome da instância + "_" + nome do processo de background + "_" + valor numérico + "." + extensão .trc 
+		(Ex.: orcl_mmon_27214.trc). 
+		Eles podem ser gerados em pastas diferentes, conforme a versão do Oracle Database. 
+		Para descobrir facilmente onde eles são gerados, execute no BD (conectado com um usuário que tenha privilégios de administrador), a consulta abaixo:
+     
+		show parameter background_dump_dest
+
+
+
+	AUTITRACE:
+						-- abra uma conexao no SQL Plus e execute a instrucao abaixo p/ exibir somente PE + estatiscas da execução:
+			set autotrace traceonly
+			SELECT          C.NM_CLIENTE, P.CD_PEDIDO, P.DT_PEDIDO
+			FROM            ECOMMERCE.CLIENTE C
+			INNER JOIN      ECOMMERCE.PEDIDO P
+			  ON            C.CD_CLIENTE = P.CD_CLIENTE
+			WHERE           P.CD_PEDIDO BETWEEN 1 AND 10;
+
+			-- executar separadamente o comando abaixo:
+			set autotrace off
+		
+		
+		Theta Join: Perguntar para o Fábio por email, ele ficou de enviar por e-mail para mostrar um exemplo...
+		
+		Chistian Antognini - Pesquisar sobre plano de execucao no blog dele...
+		
+		Jonathan Lews, Pesquisar sobre esse autor
+		
+		
+		
+		
+			PESQUISAR MAIS SOBRE ESSE ASSUNTO
+			
+		---------------	
+		OTIMIZANDO SQL:	
+		---------------	
+		
+		 Para tunar uma instrução SQL:
+		 
+		 – Altere-a inúmeras vezes, gerando N versões;
+		 – Analise o plano de execução de cada versão gerada;
+		 – Implemente na aplicação a versão que apresenta o menor custo ou menor tempo de resposta.
+		 
+		 Veja no PE se as operações executadas em cada passo consomem poucos recursos e são adequadas para a qtde. de dados a ser retornada.			
+			
+		Quando uma operação estiver consumindo muitos recursos e o seu tempo de execução não estiver bom, considere otimizar a instrução SQL da seguintes formas:
+		
+		Criando índices do tipo apropriado:
+			* Utilizando hints
+			* Atualizando as estatísticas do objeto
+			* Reescrevendo o SQL
+			
+			Consultar artigo:
+					LINK Hint: https://www.fabioprado.net/2013/08/hints-usar-ou-nao-usar-eis-questao.html
+					LINK Coletando Estatísticas: https://www.fabioprado.net/2012/04/coletando-estatisticas-para-o.html
+					
+					
+		
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																			-- CAPITULO 4 -- ESTATISTICAS DE OBJETOS --
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------			
+	
+	
+	Neste capítulo veremos:
+		-------------------------------------
+		– O que são estatísticas de objetos -
+		-------------------------------------
+		
+			São uma coleção de dados que descrevem os objetos do Banco de Dados;
+		    São usadas pelo Otimizador p/ que ele possa gerar o melhor plano de execução para cada instrução SQL;
+		
+			Inclui informações, tais como:
+				- Tabela:
+				- Quantidade de linhas + Quantidade de blocos + Tamanho médio em bytes de cada linha;
+				- Coluna:
+				- Quantidade de valores distintos (NDV) e nulos;
+				- Distribuição de dados (histograma) + Estatísticas extendidas;
+				- Índices:
+				- Quantidade de folhas e galhos (níveis) + Fator de clusterização.
+		
+			COLETA DE ESTATÍSTICAS DE OBJETOS
+				
+				- Podem ser efetuadas no nível de objetos, schemas ou database;
+				- Estatísticas atualizadas são essenciais para o otimizador montar um bom plano de execução, e deste modo, otimizar a performance das instruções SQL;
+				- A partir do Oracle Database 10G, as coletas são executadas automaticamente pelo Oracle, diariamente, em um horário compreendido entre 22h e 2h, em dias da semana, 
+				  ou nos fins de semana entre 6h do Sábado e 2h do Domingo;
+				
+				Histograma: Conceito de estatística....
+		-----------------------------------------------------
+		– Como configurar e coletar estatísticas de objetos -
+		-----------------------------------------------------
+	
+		
+	
+	
+
+	EXERCICIOS:
+		4 - THIAGO, NAO E NECESSARIO, PQ O CODIGO DO CLIENTE É ÚNICO E NAO VAI TER VARIAÇÃO, É CHAVE PRIMARIA, 
+			HISTOGRAMA SÓ É NECESSARIO QUANDO TEM VARIAÇÃO DE DADOS
+		
+		5- 
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																	-- CAPITULO 5 -- OTIMIZANDO DML --
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------			
+
+	VISÃO GERAL:
+		Neste capítulo veremos:
+		– Dicas e técnicas para atualizar (deletar, inserir e alterar) dados com melhor performance.
+
+	---------
+	TRUNCATE:
+	---------
+		Para apagar todos os dados de uma tabela, considere o uso do comando TRUNCATE TABLE ao invés do DELETE.
+		
+	Características do TRUNCATE:
+	
+	– É uma instrução DDL (por isso não é transacional);
+	– É mais rápido que DELETE; -- Mas como (quase) toda regra tem a sua exceção, em determinadas situações um TRUNCATE também pode demorar, e isso ocorrerá, normalmente, se os dados da tabela em que o comando estiver sendo executado estiverem na Buffer Cache (BC). Nestes casos há um tempo de execução maior, que não envolve apenas a movimentação da marca d´água, mas também o tempo para limpar os blocos de dados dessa tabela na BC 
+	– Não dispara triggers, não gera log e não gera UNDO;
+	– Redefine a estrutura da tabela, ressetando a marca d’água, ou seja, zera toda a tabela, fica limpa!
+			
+	DELETE FROM  ECOMMERCE.CLIENTE_TESTE;  
+	
+	COMANDO PARA LIMPAR O CACHE: 
+	--limpe a buffer cache para garantir que o TRUNCATE execute rapido
+	alter system flush buffer_cache;    
+
+	TRUNCATE TABLE ECOMMERCE.CLIENTE_TESTE;
+	
+		No 12c é possível executar TRUNCATE CASCADE se a FK é criada com ON DELETE CASCADE.
+
+	ADD CONSTRAINT FK1_DELCASC FOREIGN KEY (NOME)
+	
+	LINK SOBRE ESSE ASSUNTO:
+			https://www.fabioprado.net/2019/02/truncate-demorando-por-que.html#more
+	
+	-------
+	SHRINK:
+	-------
+	
+	LINK: https://www.devmedia.com.br/compactando-tabelas-com-o-shrink-em-bancos-de-dados-oracle/25928
+	
+	 Recurso do Oracle Database (que é apresentado nos treinamentos oficiais Oracle Database 11g: Administration Workshop II Ed 2), que tem como objetivo principal, 
+	 liberar espaço não utilizado nas tabelas (segmentos), além de desfragmentar dados e consequentemente otimizar performance de consultas que realizam Full Table Scan (FTS) 
+	 e operações que realizam alterações (UPDATE e INSERT).
+	 
+	 Para fazer uma espécie de reorganização da tabela, liberando o espaço dos blocos vazios, movimentando a marca d’água e desfragmentando os dados de uma tabela, 
+	 um dos métodos atuais mais conhecidos e fáceis de usar, é o SHRINK, que existe no Oracle Database a partir da versão 10G.
+	 
+	 Entre os principais benefícios que o SHRINK apresenta, podemos destacar:
+
+	Reduz a quantidade de linhas migradas encadeadas e/ou migradas:
+	Linhas encadeadas e migradas prejudicam a performance das consultas que precisam acessá-las.
+	
+	É executado em modo ONLINE e faz atualização dos índices:
+	É possível executar o SHRINK com o BD em operação (com usuários trabalhando no BD).
+	
+	Não precisa de espaço extra:
+	Não dispara triggers:
+	
+	Obs: create table as (carrega os dados na buffer cache)
+	por isso deve ser fazer um flush!
+	
+	alter system flush buffer_cache..
+	
+
+	DESVANTAGENS:
+		
+		Não funciona em tabelas clusterizadas, tabelas IOT, tabelas com colunas LONG , alguns tipos de Visões Materializadas (ON-COMMIT e baseadas em ROWID) e tabelas com índices 
+		baseados em função;
+		
+	Tabela Cluster: Uma tabela 'cluster' é um grupo de tabelas que compartilham os mesmos blocos de dados, desde que compartilhem colunas em comum e são usadas frequentemente em conjunto.
+	
+	Tabelas IOT(Index Organized Table):
+		
+				A IOT ordena os dados numa estrutura de índices B-Tree, classificando-os da mesma forma que uma chave primária. Mas a grande ‘sacada’ da IOT é a possibilidade da 
+				variação do ‘endereço da linha’, também conhecido como ROWID, para conseguir efetuar a organização dos dados no momento de seu armazenamento.
+				
+	BUFFER: Estrutura de memória Lógica.
+	
+	------------
+	PARALELISMO:
+	------------
+			LINK: https://www.devmedia.com.br/paralelismo-no-oracle-database-11g/28332
+			
+		Analisaremos neste artigo o recurso de paralelismo automático no Oracle Database 11G, demonstrando como configurá-lo, os seus principais benefícios, 
+		vantagens e os cuidados que devem ser tomados ao utilizá-lo em determinados ambientes.
+		
+		Pode ser muito simples e fácil de usar, é eficiente para otimizar instruções SQL longas e que exigem muito processamento do Banco de Dados.
+		
+	 
+	 Em que situação o tema é útil:
+	
+		Em ambientes de Bancos de Dados críticos, o uso de paralelismo automático nas operações de Bancos de Dados pode ser um forte aliado para otimizar sistemas que exigem ou 
+		necessitam de máxima performance em tempo de resposta. 
+		O paralelismo automático é um recurso muito útil para realizar operações de cargas ou leituras de dados intensivas em ambientes OLAP, grandes Bancos de Dados e até mesmo 
+		para realizar processamento batch ou longas instruções SQL em ambientes mistos (OLTP e OLAP) ou OLTP.
+		
+	
+		Em ambientes já saturados, ambientes com muitos usuários concorrentes ou ambientes que executam pequenas instruções SQL, não vale a pena utilizar paralelismo. 
+		O paralelismo é um recurso poderoso, mas ele só proporciona ganhos de performance em ambientes com recursos de CPU e I/O subutilizados e em longas instruções SQL.
+		
+		
+		O que é paralelismo ?
+		---------------------
+			Paralelismo, em bancos de dados, é o termo utilizado para definir execução paralela, que por sua vez, é a habilidade do Sistema Gerenciador de Banco de Dados (SGBD) 
+			empregar múltiplos processadores para executar uma única operação. 
+			
+			Deste modo, o servidor divide uma única tarefa em partes menores e pode executá-las concorrentemente para reduzir o tempo total de execução.
+			O paralelismo normalmente reduz drasticamente o tempo de resposta de operações longas de cargas ou consultas a dados, e pode ser muito útil em grandes bancos de dados, 
+			principalmente em bases OLAP (OnLine Analytical Processing).
+			
+			
+		Isso significa multiplas CPU's, tem que tomar cuidado para usar isso. Pesquisar!!!
+		Significa usar mais recursos, memoria abrindo mais seções, CPUs.
+	
+	Paralelismo no blog do Fábio.
+	
+	hint pararrel
+	pode se usar no selec/insert
+	Nao esquecer de usar o apelido...
+	
+	
+	DML_EXECUTE_PARALLEL:
+	
+	Esse recurso é uma alternativa do paralelismo
+	
+	Permite dividir em instrucao em N Jobs
+	
+	Divide as instruções.
+			
+			
+			
+		HABILITAR PARALLEL QUERY:
+			
+		-- Para verificar se parallel query, dml e ddl esta habilitado no nivel da sessao veja o valor da coluna pdml_status	
+		
+			Execute:
+			alter session enable parallel dml; -- [enable || FORCE]
+		
+			SELECT username, pq_status, pddl_status, pdml_status,
+			FROM v$session
+			WHERE sid = sys_context('userenv','sid'); 
+			
+			Após habilitar, exeplo de como aplicar em insert's:
+			
+				INSERT /*+ PARALLEL(o) */ INTO SOE.ORDER_ITEMS2 o
+				SELECT /*+ PARALLEL(d) */ * FROM SOE.ORDER_ITEMS d
+				WHERE ROWNUM < 9999999;  -- 45.52s (todas as linhas no Enterprise), 175s (9.999.999 lihas no Express)
+
+
+
+
+			
+	-----------------------
+	INSERT COM HINT APPEND:
+	-----------------------
+	
+	Ao realizar a inserção de muitas linhas através da instrução INSERT utilize o hint APPEND;
+	
+	Este modo de inserção insere os dados acima da marca d´água (HWM), não reutiliza blocos vazios e não utiliza a Buffer Cache.
+	
+	Evite utilizar quando houver atualizações concorrentes. Não dá para usar em tabelas que possuem integridade referencial e triggers habilitadas.
+	
+	Insere em novos blocos, não fica procurando, vai direto no datafiles, não passa na buffer_cache.
+	Usar quando se faz muitas inserções!!!
+	
+
+
+
+
+	------------
+	HINT APPEND: (dica)
+	------------	
+				Recursos para influenciar o otimizador a melhorar o plano de execução!
+				
+		VANTAGENS:
+		
+		LINK: https://www.fabioprado.net/2013/08/hints-usar-ou-nao-usar-eis-questao.html
+			  https://imasters.com.br/data/entendendo-o-hwm-high-water-mark
+		
+		
+		Os hints podem ser muito úteis se soubermos quando e qual usar!
+		
+		-------------------
+		1 HWM MARCA D'AGUA:  
+		-------------------
+		
+		Um dos principais CONCEITOS sobre arquitetura física do Oracle se refere a marca Dágua.
+		Uma tradução de HWM - High Water Mark, ele que ""indica o limite que uma tabela já ocupou de espaço físico"" para um determinado datafile no seu banco de dados.
+		
+		A marca dágua é o limite do número de blocos que uma tabela pode estar utilizando. 
+		Resumindo:
+				Toda vez que uma tabela recebe um INSERT(novos registros), essa marca na tabela aumenta dizendo ao Oracle Server a 
+				quantidade de blocos que a tabela está utilizando, automaticamente, a quantidade de blocos, multiplicados, pelo tamanho
+				do db_bloco_size do banco de dados, diz o valor físico real que está sendo utilizado.
+				
+		DESVANTAGENS DE NÃO COMPACTAR UMA TABELA:
+				
+				Por possuir alguns blocos vazios, além da marca dágua elevar o número de extents no dicionário, prejudicando muitas vezes os planos de execução e os table full scans.
+				Também perde espaço físico para a tablespace, espaço que não puderam ser alocados por outro segmento.
+		
+		UNIDADES DE ALOCAÇÃO DE ESPAÇO EM BANCO DE DADOS:
+		
+			Segmentos -- > Um segmento é um conjunto de extensões.
+			Extensões -- > Corresponde a um número específico de blocos de dados contíguos alocados para armazenar um tipo específico de informação.
+			Blocos    -- > Corresponde a um número específico de bytes de espaço físico no banco de dados em disco.
+		
+				
+		
+		
+		Este modo de inserção insere os dados acima da marca d´água (HWM) High Water Marker											
+		Com o passar do tempo uma tabela pode passar a possuir diversos “espaços vazios”, devido a operações DML (ex: DELETE) 
+		e gerar inconsistências entre a marca d'água (HWM - High Water Marker) e a quantidade real de registros presentes na tabela
+		e com isso deteriorar o desempenho de suas operações.
+		
+	
+		O comando:
+			No Oracle para compactar uma tabela, basta utilizar os comandos na sequência que se segue:
+
+		alter table NOME_TABELA enable row movement;
+		alter table NOME_TABELA shrink space compact;
+		alter table NOME_TABELA shrink space;
+				
+				
+			LINK: https://www.oraclehome.com.br/2013/08/14/diferencas-entre-truncate-table-drop-table-ou-delete-from/
+				  http://senseitreinamentos.com.br/blog/PaginaBlogSenseiDetalhe.php?ds=COMPACTACAO-DE-TABELA-NO-ORACLE-E-O-CONCEITO-DO-HWM
+		
+	
+	ADICIONAL 
+		LINK:  https://www.oracle.com/technetwork/pt/articles/database-performance/tamanho-de-uma-tabela-no-oracle-495868-ptb.html
+		
+		
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------			
+
+	
+		
+		Não reutiliza blocos vazios e 
+		Não utiliza a Buffer Cache.
+		Pode utilizar paralelismo automaticamente
+		Não gera UNDO. 
+		É bem mais rápido quando a tabela está configurada para não gerar log (minimal logging);
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		VIEW QUEM CONTEM OS HINTs DISPONIVEIS: 
+											SELECT * FROM v$sql_hint;
+											
+		EXEMPLO DE HINT APPED
+					INSERT /*+APPEND*/ INTO HR.EMP3
+						SELECT * FROM HR.EMPLOYEES;
+						
+
+	------
+	FORAL: 
+	------
+	
+	Sempre que possível devemos executar operações de carga em um único passo, como por exemplo, utilizando um INSERT SELECT com a 
+	hint APPEND.
+	Mas quando isso não é possível, e precisamos recorrer ao processamento com PL/SQL, o uso do comando FORALL é fundamental para a 
+	otimização de trocas de contexto por DML.
+	A Oracle desenvolveu o comando FORALL, cujo objetivo é enviar ao servidor um lote de comandos DML de uma única vez, 
+	utilizando apenas uma troca de contexto. 
+	O resultado dessa abordagem são procedimentos muito mais leves, rápidos e eficientes.
+	
+	FORALL é uma ferramenta indispensável de otimização, tanto para desenvolvedores como DBAs.
+	
+	
+	-------------------------
+	MONITORAMENTO DE INDICES:
+	-------------------------
+		
+		Segundo a Oracle, cada índice criado em uma tabela pode degradar em média 3X a performance das instruções DML naquela tabela;
+		
+		Monitore os índices que você desconfia não estarem sendo utilizados. Se após um determinado período de monitoramento você descobrir que determinado(s) índice(s) não está(ão) 
+		sendo utilizado(s), torne-os invisíveis por outro determinado período, apague-o(s), e por fim, desligue o monitoramento.
+		
+	Até o 11g precisa habilitar
+	Não pode ficar habilitado sempre, degrada performance.
+	No 12 já vem default.
+	Depois de um mes sem usar, deixar invisivel, mais um mes apagar e guardar o dml, para caso precise, já está pronto!
+	
+	Ao fazer cargas grandes, desabilitar o indices e constrants. Testar!!!
+	
+	-- a consulta abaixo permite ver indices de qq usuario:
+
+	select  u.username,
+        t.name as table_name, io.name as index_name, 
+        decode(bitand(i.flags, 65536), 0, 'NO', 'YES') as monitoring,
+        decode(bitand(ou.flags, 1), 0, 'NO', 'YES') as used,
+        ou.start_monitoring,
+        ou.end_monitoring
+	from    sys.obj$ io 
+	JOIN    sys.object_usage ou
+		ON  io.obj# = ou.obj#
+	JOIN    sys.ind$ i
+		ON  i.obj# = ou.obj#
+	JOIN    sys.obj$ t
+		ON  t.obj# = i.bo#
+	JOIN    dba_users u
+		ON  u.user_id = io.owner#;
+	
+	HABILITANDO MONITORAMENTO DE INDICE:
+
+		-- 1: monitore o uso de indices (degrada em media 3%):
+		alter index ECOMMERCE.UK_CLIENTE_NMCLIENTE monitoring usage;
+		
+		-- comando para desabilitar monitoramento
+		alter index ECOMMERCE.UK_CLIENTE_NMCLIENTE nomonitoring usage;
+		
+		--habilitar monitoramento total dos indices:
+		ALTER SESSION SET "_iut_stat_collection_type"=ALL;
+
+		-- ver ultima atualizacao da "DBA_INDEX_USAGE" (ocorre a cada 15 minutos)
+		select * from V$INDEX_USAGE_INFO;
+
+	
+	   ----------------	
+		- COMANDO MERGE:
+		----------------
+		LINK: http://olivertconsultoria.blogspot.com/2013/01/usando-o-comando-merge.html
+	
+		O comando MERGE combina operações de INSERT, UPDATE e DELETE.
+		
+		OBS.: Este comando é mais frequentemente utilizado em aplicações de Data Warehousing durante os processos de ETL (Extract, Transform e Load - extração, transformação e carregamento).
+	
+	Sintaxe do comando:
+	
+	MERGE [hints] INTO [nome_tabela]
+	USING [nome_tabela_visão_ou_consulta]
+   ON ([condição])
+	WHEN MATCHED THEN [cláusula_de_update]
+      DELETE [cláusula_where]
+	WHEN NOT MATCHED THEN [cláusula_de_insert]
+     [LOG ERRORS [cláusula_de_log_erros][REJECT LIMIT [inteiro | ilimitado]];
+
+	insert /*+ append */ into local_table select * from table@remote_location;	
+	
+	Utilize a instrução MERGE para realizar UPSERTs ao invés de um bloco PL/SQL ou rotinas no código da aplicação.
+	
+	Características do MERGE:
+	
+	– Pode combinar múltiplas operações: INSERT, UPDATE e DELETE;
+	– É uma instrução determinística, ou seja, não permite atualizar a mesma linha de uma tabela múltiplas vezes na mesma instrução;
+	– Na maior parte dos casos é mais flexível e eficiente que as soluções tradicionais de “UPSERT”.
+	– Cuidado ao utilizar sequences! Mesmo se uma condição (Ex.: NOT MATCHED) não for alcançada, o número sequencial dela será perdido!
+	
+	------------------
+	INSERT MULTITABLE:
+	------------------
+		Substitua blocos PL/SQL ou código na aplicação, com instruções condicionais (IF, por exemplo), por INSERT MULTITABLE;
+		Existe desde o Oracle 9i e pode ser usado em ETL.
+		
+		
+		Exemplos de connect by level:
+		
+			(select level from dual connect by level <= 2) 
+			 select r from (select rownum r from all_objects) e where r <=10 
+			 
+			 
+	------
+	ROWID:
+	------
+		Pesquisa por ROWID é o método de acesso mais rápido que existe;
+        Quando possível, utilize-o para atualizar ou excluir dados de tabelas.
+
+	-- Ao inves de alterar utilizando a PK:
+EXPLAIN PLAN FOR
+  UPDATE  ECOMMERCE.ITEM_PEDIDO IP1
+  SET     VL_TOTAL = VL_TOTAL * 2
+  WHERE   (CD_PEDIDO, CD_PRODUTO) IN 
+                  (SELECT  CD_PEDIDO, CD_PRODUTO
+                   FROM    ECOMMERCE.ITEM_PEDIDO IP2
+                   WHERE   ROWNUM < 100000);    
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY());
+
+-- Execute a alteracao utilizando o ROWID:
+EXPLAIN PLAN FOR
+  UPDATE  ECOMMERCE.ITEM_PEDIDO IP1
+  SET     VL_TOTAL = VL_TOTAL * 2
+  WHERE   ROWID IN 
+                  (SELECT  ROWID
+                   FROM    ECOMMERCE.ITEM_PEDIDO IP2
+                   WHERE   ROWNUM < 100000);
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY());
+
+	--------
+	COMMITS:
+	--------
+	
+	Cada COMMIT gera uma escrita nos Redo Log Files, portanto:
+	MENOS COMMITs = MENOS I/O
+	MENOS I/0 = MELHOR PERFORMANCE
+
+	-----------
+	SQL LOADER:
+	-----------
+		
+		Carga de dados com o SQL Loader:
+		
+		O SQL Loader é um utilitário que foi introduzido no Oracle 8i, que permite ler dados de arquivos externos e carregá-los em tabelas de um BD Oracle;
+		– Possui a vantagem de efetuar cargas de dados mais rápidas que os caminhos de atualização de dados convencionais, tais como scripts de INSERT;
+		– Deve-se utilizar obrigatoriamente, como parâmetros, um arquivo de controle e um arquivo de dados. Opcionalmente, a carga de dados pode gerar log das operações executadas, 
+		  dos dados rejeitados e dos dados descartados.
+		  
+		 
+	-----------------------------
+	TABELA EXTERNA + HINT APPEND:
+	-----------------------------
+	
+	Para fazer uma carga mais rapida, tem limitações!!!
+	Utilizam paralelismo automaticamente;
+	Fornecem mais flexibilidade e recursos para transformar os dados.
+	
+	
+	DROP TABLE XXX PURGE;
+		
+		Objetivo:
+			Use a instrução "PURGE" para remover uma tabela ou índice da sua lixeira e liberar todo o espaço associado ao objeto, 
+		
+		Comando para consultar a lixeira:
+		
+					 SELECT * FROM USER_RECYCLEBIN;
+		
+		
+		
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																	-- CAPITULO 6 -- OTIMIZANDO QUERIES  --
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------					
+		
+		
+		
+ 	Com padão ANSI tem ganho de performance!
+	
+	Substituir DISTINCT por ROWNUM, ganho de performance!
+
+	Utilizar multiplos scans com Case sql
+		
+	-- Escreva:
+EXPLAIN PLAN FOR
+  SELECT COUNT (CASE WHEN salary < 2000 
+                     THEN 1 ELSE null END) count1, 
+         COUNT (CASE WHEN salary BETWEEN 2001 AND 4000 
+                     THEN 1 ELSE null END) count2, 
+        COUNT (CASE WHEN salary > 4000 
+                   THEN 1 ELSE NULL END) COUNT3 
+  FROM  HR.EMPLOYEES; 
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);	
+		
+	-----	
+	WITH:	
+	-----
+		
+		LINK: https://www.fabioprado.net/2010/10/clausula-with-para-tunar-queries.html
+		
+		    A cláusula WITH, existente no Oracle Database a partir da versão 9i release 2, é genericamente conhecida como Commom Table Expression (CTE) e faz parte do padrão 
+			ANSI SQL 99. 
+			Ela pode ser utilizada para otimizar a performance de consultas SQL , possibilitando a reutilização de blocos de subquery ou tabelas que são referenciadas N vezes 
+			dentro da mesma query, criando uma espécie de tabela temporária. 
+			Essa tabela temporária existe somente no escopo da instrução SQL em que a cláusula WITH está contida e ela é armazenada em memória ou em um tablespace temporário, 
+			que possui acesso mais rápido que um tablespace comum.
+			
+		Se puder colocar o order by na aplicação é melhor!!!
+		
+	------------
+	EXISTS X IN:
+	------------
+			
+	Avalie o uso de EXISTS ou IN em subqueries. Em geral, utilize as seguintes regras:
+
+		– Se o predicado seletivo (filtro) estiver na subquery, utilize IN;
+		– Se o predicado seletivo (filtro) estiver na query pai, utilize EXISTS.
+		
+	---------------
+	VARIAVEIS BIND:
+	---------------
+		
+		Utilize variáveis BIND ao invés de valores literais.
+		Permitem a reutilização do plano de execução de SQLs similares.
+		
+	-------------
+	USE COALESCE:
+	-------------
+		
+		NVL x COALESCE
+			Faz a mesma coisa, porém, "COALESCE" utiliza um conceito de Short-Circut, ou seja, se o primeiro retornou falso, ja para o processanto.
+		
+		EXEMPLO:
+		
+	SELECT
+	COALESCE(NULL,'A','B') result
+	FROM
+	DUAL;
+	
+	--------------------
+	INDICES CONCATENADO:
+	--------------------
+	
+	Concatenado ou composto, a mesma coisa!
+	
+	OBS: Em muitos casos, o indice composto é uma excelente alternativa com ganho de performance.
+	
+	se for tres campos seguidos, o indece composto é excelente.
+	
+	Se pular campo, tem que analisar, porque fica pesado.
+	
+	INDICES NAS FKs 
+	É uma boa prática!
+	
+	Por padrão o Oracle cria um índice nas PKs!
+	
+	Porém, nas FKs não, portanto, é preciso criar
+	para não fazer full Table Scan
+	É uma boa pratica se utilizar muitos joins
+  
+  
+	------------------	
+	FKs NAO INDEXADAS:	(Colocar índice nas chaves estrangeiras)
+	------------------
+
+	Segundo a Oracle, as colunas de FKs devem ser quase sempre indexadas. Isso resulta em ganho de performance, porém, sempre executar o PE.
+	
+
+	Verifica se o indice está indexado:
+	
+	SELECT CASE
+         WHEN b.table_name IS NULL THEN 'unindexed'
+         ELSE 'indexed'
+       END               AS status, 
+       a.owner, 
+       a.table_name      AS table_name, 
+       a.constraint_name AS fk_name, 
+       a.fk_columns      AS fk_columns, 
+       b.index_name      AS index_name, 
+       b.index_columns   AS index_columns 
+FROM   (SELECT a.owner, 
+               a.table_name, 
+               a.constraint_name, 
+               Listagg(a.column_name, ',') 
+                 within GROUP (ORDER BY a.position) fk_columns 
+        FROM   dba_cons_columns a, 
+               dba_constraints b 
+        WHERE  a.constraint_name = b.constraint_name 
+               AND b.constraint_type = 'R'
+               AND a.owner LIKE 'DB%'
+               AND a.owner = b.owner 
+        GROUP  BY a.owner, 
+                  a.table_name, 
+                  a.constraint_name) a, 
+       (SELECT table_name, 
+               index_name, 
+               Listagg(c.column_name, ',') 
+                 within GROUP (ORDER BY c.column_position) index_columns 
+        FROM   dba_ind_columns c 
+        WHERE  c.index_owner LIKE 'DB%'
+        GROUP  BY table_name, 
+                  index_name) b 
+WHERE  a.table_name = b.table_name(+) 
+       AND b.index_columns(+) LIKE a.fk_columns 
+                                   || '%'
+ORDER  BY 1 DESC, 
+          2; 
+	
+	-------
+	VISOES:
+	-------
+	
+	
+	
+	Apesar de permitirem reuso de código e melhor controle de acesso às tabelas e colunas, as visões podem ser perigosas em termos de performance quando ela acessa mais dados 
+	do que o necessário ou quando existe aninhamento de visões.
+	
+	Tomar cuidado com View's, tem perda de performance!
+	Simplifica a manutenção, porém, tem que analisar...
+	
+	
+	Problemas comum com visões:
+
+	– Sobrecarga desnecessária;
+	– Não utilização de índices.
+	
+	
+	------------------
+	PREDICATE PUCHINH:
+	------------------
+		
+		Significa colocar claúsula na view, isso é legal!
+		
+		Pesquisar ???
+		
+	-------------
+	VIEW MERGING:
+	-------------
+			
+			???????
+			
+			
+			
+	--------------------
+	MVs + QUERY REWRITE:		
+	--------------------		
+	
+	
+	
+	----------------------
+	DBMS_ADVANCED_REWRITE:
+	----------------------
+	
+	Um recurso para substituir um sql por outro
+	Tem muitos limitações.
+	
+	Pesquisar
+	
+	Onde for possível usar, é bom!!!
+	
+	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+																	-- CAPITULO 7 -- INFLUENCIANDO O OTIMIZADOR --
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------						
+	
+	Neste capítulo veremos:
+	
+	Hints e principais "parâmetros do Banco de Dados" que podem ser configurados para influenciar o comportamento do otimizador e possibilitar a otimização de instruções SQL.
+	
+	------------------------------------------
+	- PARÂMETROS QUE INFLUENCIAM O OTIMIZADOR:
+	------------------------------------------
+		LINK: http://dbtimewizard.com.br/blog/qual-a-melhor-opcao-para-o-parametro-optimizer_mode/
+		Configure os parâmetros baseando-se em teorias e testes, e cuidado com as consequência inesperadas... Teste bastante e depois monitore!
+	
+	------------------
+	- OPTIMIZER_MODE -
+	------------------
+	
+	
+	Configure o parâmetro OPTIMIZER_MODE P/ também instruir o otimizador a optar por executar a instrução obtendo o (melhor tempo de resposta (IS) Index SCAN)
+	ou (melhor taxa de transferência (FTS) Table Access SCAN)
+	
+	
+	Em BD’s OLTP normalmente é mais performático configurar o valor do OPTIMIZER_MODE para FIRST_ROWS. Isso faz com que o otimizador opte com mais frequência pelo uso de índices;
+	
+	Em BD´s OLAP configure p/ ALL_ROWS para induzir o otimizador a realizar mais FTS.
+	
+	script 01_optimizer_mode
+	
+	http://dbtimewizard.com.br/blog/qual-a-melhor-opcao-para-o-parametro-optimizer_mode/
+	
+	
+	Fazer isso no nível da sessão!!!!
+	
+	
+	-- all_rows favorece melhor throughput (boa configuracao para hardware muito bom (Ex.: Exadata) ou OLAP):
+	ALTER SESSION SET OPTIMIZER_MODE = ALL_ROWS; 
+	
+	explain plan for
+            SELECT      O.ORDER_DATE,
+                        O.ORDER_ID,
+                        P.PRODUCT_NAME,                        
+                        O.ORDER_STATUS,
+                        O.ORDER_TOTAL,
+                        I.QUANTITY,
+                        I.UNIT_PRICE
+            FROM        SOE.PRODUCT_INFORMATION P
+            INNER JOIN  SOE.ORDER_ITEMS I
+                ON      P.PRODUCT_ID = I.PRODUCT_ID
+            INNER JOIN  SOE.ORDERS O
+                ON      O.ORDER_ID = I.ORDER_ID                                                         
+            ORDER BY    O.ORDER_DATE, O.ORDER_ID, P.PRODUCT_NAME;
+select * from table(dbms_xplan.display); 
+	
+	
+	
+	-----------------------------	
+	- OPTIMIZER_FEATURES_ENABLE - (Parametro p/ otmizar a performance)
+	-----------------------------
+		
+	Utilizado pelos DBSs quando se faz migração, pra não sentir o impacto. 
+	Após a realese configurar o parametro para o antigo durante um período de um mes, posteriormente, mudar para a configuração do SGBD implantado, 
+	para que seja possível utilizar as vantagens da nova versão.
+	
+		Deixar sempre na versão atual!!!
+	
+	O parâmetro OPTIMIZER_FEATURES_ENABLE pode ser utilizado para que o otimizador simule o comportamento de uma versão anterior do SGBD.
+	
+	Configure o parâmetro OPTIMIZER_INDEX_COST_ADJ p/ mudar o custo de operações FTS X Index Search.
+	
+	O valor padrão é 100 e representa o custo normal de uso de índices. O range de valores permitidos é: entre 0 e 10000;
+	
+	Configurações adequadas, conforme ambiente:
+	
+	– OLTP:
+		Utilize valores baixos para favorecer o uso de índices;
+		
+		Em muitos OLTP´s, um valor entre 10 e 50 é a melhor configuração p/ otimizar a performance geral das consultas.
+
+	– OLAP:
+		Utilize valores altos para favorecer FTS.
+	
+	
+	
+	----------------------------
+	- OPTIMIZER_INDEX_COST_ADJ -
+	----------------------------
+	
+		Configure o parâmetro OPTIMIZER_INDEX_COST_ADJ p/ mudar o custo de operações FTS X Index Search.
+		
+		Configurações adequadas, conforme ambiente:
+		
+	– OLTP:
+		› Utilize valores baixos para favorecer o uso de índices;
+		› Em muitos OLTP´s, um valor entre 10 e 50 é a melhor configuração p/ otimizar a performance geral das consultas.
+
+	– OLAP:
+		› Utilize valores altos para favorecer FTS.
+		
+				
+		O valor padrão é 100 e representa o custo normal de uso de índices!
+		O range de valores permitidos é: entre 0 e 10000.
+	
+	OBS: Não é mais necessário de mexer nisso!!!!
+		 Só o Optmizer_Indice, já está bom!!!!!
+	
+	No exemplo do Fábio Prado, no ambiente do TRE foi configurado esse parâmetro em um ambiente OLAP de 500, ao mudar para 50, melhorou de forma absurda o desenpenho da CPU.
+	
+	
+	---------------------------
+	- OPTIMIZER_INDEX_CACHING -
+	---------------------------
+		
+		Também, não compensa ficar mexendo, esse parâmetro é um recurso antigo que não se usa mais, se alterava esse parâmetro para fazer ajustes nas versões antigas.
+		
+	Valores mais altos favorecem:
+		– Operações de nested loop joins;
+		– Index Scan em operadores de lista “IN”.
+
+	Valores mais baixos favorecem:
+		– Operações de hash joins ou sort merge joins;
+		– FTS em operadores de lista “IN”.
+	
+	
+	------------------
+	- CURSOR_SHARING -
+	------------------
+	
+		Configure o parâmetro CURSOR_SHARING p/ compartilhar cursores entre instruções similares, pois isso reduz tempo de parse das instruções SQL, reutilizando planos de 
+		execução pré-existentes. Também ajuda a economizar memória da Shared Pool.
+		
+		A Oracle recomenda o uso do valor FORCE em ambientes OLTP em situações específicas para reduzir o uso de memória, fazer parses mais rápidos e reduzir latch contention, 
+		mas tenha cuidado: 
+			Isso não é uma “bala de prata” e pode causar problemas em alguns SQLs.
+	
+	Valores possíveis a partir do 11G:
+		– EXACT: Valor padrão. Não compartilha cursores;
+		– FORCE: Habilita o uso de cursores compartilhados. Não suporta Star Transformation.
+	
+	Não funciona em 3 situações especiais:
+		– SQLs dentro de PL/SQL;
+		– SQLs mistos: contendo variáveis bind + valores hard code;
+		– SQLs que já possuem dados armazenados na Buffer Cache.
+		
+		Obs: Com esse parâmetro configurado, reduz o tempo de parse das instruções SQL!
+		
+		Teste: 
+			No ambiente ecommerce_cliente um count de 1000 linhas com EXACT ---> Demorou 123 Segundos!!!
+			
+		Limpei a shared poll e executei o teste novamente.
+			alter system flush shared_pool;
+			
+			No ambiente ecommerce_cliente um count de 1000 linhas com FORCE ---> Demorou 7 vezes mais...
+		
+		
+	------------------------------	
+	- OPTIMIZER_DYNAMIC_SAMPLING -	
+	------------------------------
+
+	Configure (mantenha) o parâmetro OPTIMIZER_DYNAMIC_SAMPLING com valor no mínimo igual a 2 para permitir a coleta dinâmica de estatísticas (em tempo de execução), por amostragem.
+		
+	Valor default a partir do 10G é 2 (no 9.2.0 é 1 e antes era 0);
+		
+	Não pode ser utilizado com paralelismo!
+		
+	Valores permitidos entre 0 e 11:
+		
+	– 0: desabilitado;
+	– 2: habilita amostragem dinânica em objetos que não possuem estatísticas;
+	– 3: habilita nível 2 + estimativa de seletividade de expressões com 1 coluna no predicado;
+	– 4: habilita nível 3 + estimativa de seletividade de expressões com 2 ou mais colunas no predicado
+	
+	Observação:	
+		O valor padrao é 2, a recomendação é deixar 2, nunca Zero a partir dp 10g.
+		2 ajuda analisar rapido(parse) vai no dicionario de dados coletar informações e monta o plano.
+		
+	--------	
+	- HINT -
+	--------	
+		Surgiram no Oracle 7, época em que existiam poucos recursos p/ influenciar o otimizador e melhorar o plano de execução.
+		
+		
+		Tipos de hints:
+		
+		– Single-table: INDEX, FULL, PARALLEL, DRIVING_SITE.
+		– Multi-table: INDEX_JOIN, LEADING
+		– Query block: STAR_TRANFORMATION
+		– Statement: ALL_ROWS, FIRST_ROWS, PARALLEL , RESULT_CACHE.
+		
+		
+		Cuidado com hints obsoletos, como por exemplo: RULE. Não são mais usados!!!!
+	-------------	
+	- HINT FULL -
+	-------------
+		
+			O hint FULL (/*+ FULL */) instrui o plano de execução a realizar um FTS;
+			Quando não houver histogramas e o otimizador estiver usando um índice em consulta que retorna, por exemplo, 50% dos dados de uma tabela, 
+			executar um FTS pode ser mais rápido.
+			
+	-----------------		
+	- HINT PARALLEL -
+	-----------------
+
+			Utilize o hint PARALLEL como alternativa para:
+			– Paralelizar um FTS;
+			– Substituir index lookups, fazendo um FTS paralelizado.
+		
+			Muitas vezes um FTS paralelizado é mais rápido que um Index Range Scan.
+	
+	-------------------		
+	- HINT FIRST_ROWS - 	
+	-------------------	
+			
+			/*+ FIRST_ROWS(10) */ -- Indica que vai retorna 10 linha, que não é verdade!
+			/*+ FIRST_ROWS */ 	  -- Esse FIRST_ROWS lê todas as linhas...
+			
+			
+		EXEMPLO:
+--------------------------------------------------------			
+		-- Ao inves de:			
+EXPLAIN PLAN FOR  						-- cust 792
+    SELECT          *
+    FROM            ECOMMERCE.ITEM_PEDIDO    	
+    WHERE         	CD_PRODUTO = 3;
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+--------------------------------------------------------
+-- Escreva:
+EXPLAIN PLAN FOR
+    SELECT          /*+ FIRST_ROWS */  *  -- cust 3394
+    FROM            ECOMMERCE.ITEM_PEDIDO    	
+    WHERE         	CD_PRODUTO = 3;
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+--------------------------------------------------------
+-- ou escreva:
+EXPLAIN PLAN FOR
+    SELECT          /*+ FIRST_ROWS(10) */  *  -- CUST 4
+    FROM            ECOMMERCE.ITEM_PEDIDO    	
+    WHERE         	CD_PRODUTO = 3;
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);		
+--------------------------------------------------------
+
+Obs: Quando se lê muitas linhas, não é bom para o índice, o custo fica maior!!!		
+		
+		
+	-----------------
+	- HINT ALL_ROWS -
+	-----------------
+		
+	HINT ALL_ROWS Quando se deseja obter melhor taxa de transferência.
+	Bom para atuar sobre grandes conjuntos de dados;
+	Favorece FTS, portanto, é bastante útil em processamento batch e ambientes OLAP.
+	
+	EXEMPLO:
+	
+		
+	-- Escreva:
+EXPLAIN PLAN FOR                                -- 12
+    SELECT	            /*+ ALL_ROWS */  e.employee_id, 
+                        E.FIRST_NAME || ' ' || E.LAST_NAME EMPLOYEE_NAME, 
+                        J.JOB_TITLE,                   
+                        M.FIRST_NAME || ' ' || M.LAST_NAME AS MANAGER_NAME,
+                        M.JOB_TITLE AS MANAGER_JOB                  
+    FROM                HR.EMPLOYEES E
+    LEFT JOIN           (SELECT	    M.FIRST_NAME,  M.LAST_NAME,  M.EMPLOYEE_ID, JM.JOB_TITLE
+                         FROM       HR.EMPLOYEES M  
+                        INNER JOIN  HR.JOBS JM
+                          ON        M.JOB_ID = JM.JOB_ID) M
+            ON	        M.EMPLOYEE_ID = E.MANAGER_ID    
+    INNER JOIN          HR.JOBS J
+            ON          E.JOB_ID = J.JOB_ID;
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+	---------------------
+	- HINT RESULT_CACHE -
+	---------------------
+		
+		Esse Hint é novo, nasceu no database11g.
+		Utilize o hint RESULT_CACHE no Oracle 11G para colocar o "resultado da consulta em cache (na Shared Pool)", utilizando o novo recurso Result Cache;
+		
+		Guarda o "resultado da consulta" na shared_pool.
+
+		Bom para usar em relatorio.
+		Obs: Tem que configurar o espaço em memória.
+
+		Só tem o ganho a partir da segunda execução, pq a primeira não está no cache.
+		A segunda e quase instantânia.
+		
+		Query Result Cache pode ser uma alternativa para manter em memória dados de queries que demoram para executar e que retornam poucas linhas;
+		Ótimo para ser usado em BDs OLAP, pois o cache é invalidado após ocorrer algum DML na(s) tabela(s) do SQL.
+		Perfeito para ambiente OLAP, ambiente estatico.
+		
+		OBS: Não dá para usar em em ambientes transacionais(OLTP), muitas atualizações(DML).
+
+	Características principais:
+	
+	– Não suporta tabelas temporárias, tabelas do DD, funções não determinísticas, SYSDATE e outros;
+	– Deve ser habilitado previamente (através de parâmetros);
+	– O tamanho do cache deve ser gerenciado.
+		
+		
+			
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+											-- CAPITULO 8 -- SOLUCIONANDO PROBLEMAS DE PERFORMANCE EM INSTRUÇÕES SQL (Troubleshooting)--
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------							
+	LINK: https://oraculodosul.blogspot.com/2011/12/otimizacao-de-parsing-usando-bind.html
+	
+	Parse/Parsing:
+				
+				Significa analisar gramaticalmente, é exatamente esse o sentido deste termo presente na primeira etapa do processo de análise de comandos SQL. 
+				To parse a query significa interpretar e analisar um comando SQL.
+		
+		De forma sucinta, refere-se ao "Processamento de uma instrução SQL(SQL Statement)", conforme exemplificado abaixo:
+		
+		Ex: SQL Statement
+					Análise Sintática
+					Análise Semântica
+					Busca na Shared Poll
+					
+					
+					
+					
+			
+	
+	HardParse(Análise Díficil) Está relacionado ao OPTIMIZER QUERY
+			
+			 O hard parse "ocorre" quando o banco vê uma query pela "primeira vez" e não tem uma estratégia definida sobre como irá acessar os dados.
+			 Ele precisa analisar todas as combinações possíveis de métodos de acesso para obter aquela informação solicitada.
+	
+			Se uma sessão executar uma instrução SQL que não existe no pool compartilhado, o Oracle precisará fazer uma análise rígida.
+			
+	
+	
+	SoftParse(Análise Fácil)Está relacionado ao PLANO DE EXECUÇÃO
+			
+			Se uma sessão executar uma instrução SQL que existe no pool compartilhado e houver uma versão da instrução que possa ser usada, isso será chamado de análise suave.
+			 
+	
+	-------------------------------------
+	- CAUSAS DE PERFORMANCE RUIM EM SQL -
+	-------------------------------------
+	
+		Problemas com Estatísticas do Otimizador;
+		Estruturas de acesso ausentes ou ineficientes;
+		Instruções SQL ruins;
+		Problemas com compartilhamento de cursor (hard parse);
+		Contenção de recursos (recursos insuficientes);
+		Problemas com paralelismo.
+		
+		
+	------------------------------	
+	- ESTATÍSTICAS DO OTIMIZADOR -	
+	------------------------------
+	
+	Possíveis soluções:
+	
+		– Coletar estatísticas;
+		– Usar o hint DYNAMIC_SAMPLING;
+		– Deletar (e bloquear) estatísticas para que dynamic sampling seja executado automaticamente durante o parse;
+		– Configurar apropriadamente o parâmetro abaixo:
+			OPTIMIZER_DYNAMIC_SAMPLING.
+	
+	
+	
+	------------------------
+	- ESTRUTURAS DE ACESSO -
+	------------------------
+	
+	Possíveis soluções:
+		
+		– Criar índices apropriados;
+		– Criar índices nas FKs;
+		– Excluir índices desnecessários;
+		– Criar visões materializadas;
+		– Criar tabelas particionadas, clusterizadas ou IOT.
+	
+	------------
+	- SQL RUIM -
+	------------
+	
+	Reescrever SQL considerando dicas dos capítulos 5, 6 e 7, tais como:
+	
+		› Evitar funções nas colunas indexadas ou comparações com valor nulo quando quiser usar índice normal b-tree;
+		› Eliminar múltiplos scans utilizando CASE;
+		› Evitar operador de negação para viabilizar uso de índices;
+		› Configurar apropriadamente os parâmetros que influenciam o otimizador;
+		› Utilizar CTE, GTT, paralelismo etc.
+		
+	--------------
+	- HARD PARSE -
+	--------------
+	
+	Possíveis soluções:
+	
+		– Escrever instruções SQL idênticas;
+		– Utilizar variáveis bind;
+		– Habilitar compartilhamento de cursores;
+		– Configurar SGA apropriadamente.
+	
+	-------------------------
+	- CONTENÇÃO DE RECURSOS -
+	-------------------------
+	
+	Possíveis soluções:
+	
+		– Finalizar transações o mais breve possível;
+		– Otimizar transações com stored procedures;
+		– Reescrever SQL considerando dicas dos capítulos 5 e 6, tais como:
+		› Utilizar MERGE;
+		› Apagar índices não utilizados;
+		› Efetuar carga com índices e constraints desabilitados;
+		› Recuperar somente dados necessários (ao invés de *) etc.
+	
+	---------------
+	- PARALELISMO -
+	---------------
+	
+	Possíveis soluções:
+		– Utilizar paralelismo somente nas seguintes ocasiões:
+			
+		› Em instruções SQL longas;
+		› Em sistemas que possuam recursos de CPU e I/O disponíveis.
+		– Configurar PGA apropriadamente.
+		
+		
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------	
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+													-- CAPITULO 9 -- HORA DO DESAFIO MASTER --
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------								
+					
+	
+	Criar índices em tabelas grandes pode demorar um bom tempo, portanto, para avaliar se eles serão utilizados, pode ser útil criar índices virtuais ou FAKEs (sem segmento):
+	alter session set "_USE_NOSEGMENT_INDEXES" = true;
+	create index <schema>.<index_name> on <schema>.<table_name>(<column_name>) nosegment;	
+	
+	-------------------------------
+	- VIRTUAL INDEX OU FAKE INDEX -
+	-------------------------------
+	Um virtual index ou fake index é um índice cuja definição existe no dicionário de dados, porém o mesmo não possui segmentos criados. 
+	O principal propósito de um virtual index é simular a existência do mesmo sem a necessidade de realmente cria-lo.
+		
+	
+		
+explain plan for 
+
+select * from table(dbms_xplan.display);	
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+			
